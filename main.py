@@ -35,3 +35,45 @@ def get_stock_price(name, code):
 
         # 2. 전일대비 정보가 있는 구역 가져오기
         exday = soup.select_one(".no_exday")
+        
+        # 3. 데이터 추출
+        # 첫 번째 em: 가격 변동폭 / 두 번째 em: 퍼센트
+        ems = exday.select("em")
+        
+        change_amount = ems[0].select_one(".blind").text
+        change_percent = ems[1].select_one(".blind").text
+        
+        # 4. 부호 결정 (가장 확실한 방법: 상위 태그인 em의 클래스를 확인)
+        # 네이버는 <em class="no_up"> 또는 <em class="no_down">을 씁니다.
+        first_em_class = ems[0].get("class", []) # 리스트 형태 예: ['no_up']
+        
+        # 기본값 설정
+        symbol = "-"
+        sign = ""
+
+        # 리스트를 문자열로 바꿔서 검사 (확실한 방법)
+        class_str = " ".join(first_em_class)
+
+        if "up" in class_str:       # 클래스 이름에 'up'이 있으면 무조건 상승
+            symbol = "▲"
+            sign = "+"
+        elif "down" in class_str:   # 클래스 이름에 'down'이 있으면 무조건 하락
+            symbol = "▼"
+            sign = "-"
+        
+        # 결과 반환
+        return f"{price}원 / {symbol}{change_amount} / {sign}{change_percent}%"
+
+    except Exception as e:
+        print(f"[{name}] 에러: {e}")
+        return f"{name} / 데이터 확인 불가"
+
+if __name__ == "__main__":
+    lines = []
+    for s in STOCKS:
+        res = get_stock_price(s['name'], s['code'])
+        lines.append(f"{s['name']} / {res}")
+        print(res)
+
+    if lines:
+        send_telegram_message("\n".join(lines))
