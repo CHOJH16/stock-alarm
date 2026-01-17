@@ -1,0 +1,29 @@
+name: Daily Stock Alarm
+
+on:
+  schedule:
+    # 매일 한국 시간 오후 4시 (UTC 기준 오전 7시)
+    # 월(1) ~ 금(5)요일만 실행
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch: # 수동으로도 실행 가능하게 함
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 코드 가져오기
+        uses: actions/checkout@v3
+
+      - name: 파이썬 설치
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 필요 프로그램 설치
+        run: pip install -r requirements.txt
+
+      - name: 알림 봇 실행
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py
