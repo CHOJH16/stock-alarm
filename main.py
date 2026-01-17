@@ -4,20 +4,21 @@ import os
 import datetime
 import pytz
 
-# 1. 텔레그램 설정값 가져오기
+# 1. 텔레그램 설정값
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-# 2. 종목 리스트 (0008S0 포함, 검증 완료된 리스트)
+# 2. 종목 리스트 (총 4개)
 STOCKS = [
     {"name": "TIGER 미국배당다우존스타겟데일리커버드콜", "code": "0008S0"},
     {"name": "TIGER 미국배당다우존스타겟커버드콜2호", "code": "458760"},
-    {"name": "RISE 200", "code": "148020"}
+    {"name": "RISE 200", "code": "148020"},
+    {"name": "KODEX 200타겟위클리커버드콜", "code": "498400"}
 ]
 
 def send_telegram_message(message):
     if not BOT_TOKEN or not CHAT_ID:
-        print("토큰 설정 오류: Github Secrets를 확인해주세요.")
+        print("토큰 설정 오류")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": message}
@@ -38,17 +39,17 @@ def get_stock_price(name, code):
         # 1. 현재가
         price = soup.select_one(".no_today .blind").text
 
-        # 2. 전일대비 정보가 있는 구역
+        # 2. 전일대비 정보
         exday = soup.select_one(".no_exday")
         ems = exday.select("em")
         
-        # 데이터 추출
+        # 데이터 추출 (변동액, 등락률)
         change_amount = ems[0].select_one(".blind").text
         change_percent = ems[1].select_one(".blind").text
         
-        # 3. 부호 결정 (방금 성공한 로직 그대로 적용)
+        # 3. 부호 결정 (up/down 글자 포함 여부로 판단)
         first_em_class = ems[0].get("class", [])
-        class_str = " ".join(first_em_class) # 리스트를 문자열로 변환
+        class_str = " ".join(first_em_class)
 
         symbol = "-"
         sign = ""
@@ -66,55 +67,39 @@ def get_stock_price(name, code):
         print(f"[{name}] 에러: {e}")
         return None
 
-def is_market_open():
-    # 한국 시간 기준 설정
+def get_today_str():
+    # 한국 시간 가져오기
     tz = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(tz)
     
-    # 1. 주말 체크 (토=5, 일=6)
-    if now.weekday() >= 5:
-        print(f"오늘은 주말({now.strftime('%A')})이라 발송하지 않습니다.")
-        return False
+    # 요일 변환
+    weekdays = ["월", "화", "수", "목", "금", "토", "일"]
+    day_str = weekdays[now.weekday()]
     
-    # 2. 공휴일 체크 (삼성전자 주가 날짜로 확인)
-    # 오늘이 평일이라도, 장이 안 열렸으면 네이버 금융 날짜가 오늘 날짜와 다름
-    try:
-        url = "https://finance.naver.com/item/sise_day.naver?code=005930"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 가장 최신 영업일 날짜 가져오기 (YYYY.MM.DD)
-        latest_date = soup.select_one("span.tah.p10.gray03").text.strip()
-        today_date = now.strftime("%Y.%m.%d")
-        
-        if latest_date != today_date:
-            print(f"오늘은 휴장일입니다. (네이버 기준 최신일: {latest_date}, 오늘: {today_date})")
-            return False
-            
-    except Exception as e:
-        print(f"휴장일 체크 실패({e}), 평일이므로 일단 진행합니다.")
-        return True
-
-    return True
+    # 포맷: 2026년 1월 17일(토)
+    return f"{now.year}년 {now.month}월 {now.day}일({day_str})"
 
 if __name__ == "__main__":
-    # 장이 열린 날인지 먼저 확인
-    if is_market_open():
-        print("--- 주가 확인 시작 ---")
-        lines = []
-        for stock in STOCKS:
-            result = get_stock_price(stock['name'], stock['code'])
-            if result:
-                # RISE 200 / 71,410원 / ▲780 / +1.10%
-                msg = f"{stock['name']} / {result}"
-                lines.append(msg)
-                print(f"생성: {msg}")
-        
-        if lines:
-            full_msg = "\n".join(lines)
-            send_telegram_message(full_msg)
-            print("전송 완료")
+    print("--- 시작 ---")
+    
+    # 1. 날짜 헤더 생성
+    date_header = get_today_str()
+    
+    # 2. 주식 데이터 수집
+    lines = []
+    for stock in STOCKS:
+        result = get_stock_price(stock['name'], stock['code'])
+        if result:
+            lines.append(f"{stock['name']} / {result}")
+            print(f"성공: {stock['name']}")
+        else:
+            lines.append(f"{stock['name']} / 데이터 수집 실패")
+    
+    # 3. 메시지 조립 및 전송
+    if lines:
+        # 날짜 + 한 줄 띄우기(\n\n) + 종목리스트
+        full_message = f"{date_header}\n\n" + "\n".join(lines)
+        send_telegram_message(full_message)
+        print("전송 완료:\n" + full_message)
     else:
-        # 주말이거나 휴장일이면 여기서 종료
-        print("프로그램을 종료합니다.")
+        print("데이터 없음")
