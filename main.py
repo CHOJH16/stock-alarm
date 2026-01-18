@@ -4,7 +4,7 @@ import os
 import datetime
 import pytz
 
-# 1. 텔레그램 설정값 가져오기
+# 1. 텔레그램 설정값
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
@@ -18,7 +18,7 @@ STOCKS = [
 
 def send_telegram_message(message):
     if not BOT_TOKEN or not CHAT_ID:
-        print("토큰 설정 오류: Secrets를 확인해주세요.")
+        print("토큰 설정 오류")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     data = {"chat_id": CHAT_ID, "text": message}
@@ -37,19 +37,17 @@ def get_stock_price(name, code):
         soup = BeautifulSoup(response.text, 'html.parser')
 
         # 1. 현재가
-        price_tag = soup.select_one(".no_today .blind")
-        if not price_tag:
-            return None
-        price = price_tag.text
+        price = soup.select_one(".no_today .blind").text
 
         # 2. 전일대비 정보
         exday = soup.select_one(".no_exday")
         ems = exday.select("em")
         
+        # 데이터 추출 (변동액, 등락률)
         change_amount = ems[0].select_one(".blind").text
         change_percent = ems[1].select_one(".blind").text
         
-        # 3. 부호 결정 (up/down 클래스 포함 여부)
+        # 3. 부호 결정 (up/down 글자 포함 여부로 판단)
         first_em_class = ems[0].get("class", [])
         class_str = " ".join(first_em_class)
 
@@ -69,65 +67,39 @@ def get_stock_price(name, code):
         print(f"[{name}] 에러: {e}")
         return None
 
-def get_today_str(now):
+def get_today_str():
+    # 한국 시간 가져오기
+    tz = pytz.timezone('Asia/Seoul')
+    now = datetime.datetime.now(tz)
+    
     # 요일 변환
     weekdays = ["월", "화", "수", "목", "금", "토", "일"]
     day_str = weekdays[now.weekday()]
+    
+    # 포맷: 2026년 1월 17일(토)
     return f"{now.year}년 {now.month}월 {now.day}일({day_str})"
 
-def is_market_open(now):
-    # 1. 주말 체크 (토=5, 일=6)
-    if now.weekday() >= 5:
-        print(f"오늘은 주말({now.strftime('%A')})이라 발송하지 않습니다.")
-        return False
-    
-    # 2. 공휴일 체크 (삼성전자 주가 날짜로 확인)
-    # 오늘이 평일이라도 공휴일이면 네이버 금융의 최신 날짜가 오늘과 다름
-    try:
-        url = "https://finance.naver.com/item/sise_day.naver?code=005930"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # 가장 최신 영업일 날짜 가져오기 (YYYY.MM.DD)
-        latest_date_tag = soup.select_one("span.tah.p10.gray03")
-        if latest_date_tag:
-            latest_date_str = latest_date_tag.text.strip()
-            today_str = now.strftime("%Y.%m.%d")
-            
-            if latest_date_str != today_str:
-                print(f"오늘은 휴장일입니다. (최신 영업일: {latest_date_str}, 오늘: {today_str})")
-                return False
-    except Exception as e:
-        print(f"휴장일 체크 중 오류({e}), 평일이므로 일단 진행합니다.")
-        return True
-
-    return True
-
 if __name__ == "__main__":
-    # 한국 시간 기준 설정
-    tz = pytz.timezone('Asia/Seoul')
-    now = datetime.datetime.now(tz)
-
-    # 장이 열린 날인지 확인
-    if is_market_open(now):
-        print("--- 주가 확인 시작 ---")
-        
-        # 날짜 헤더 생성
-        date_header = get_today_str(now)
-        
-        lines = []
-        for stock in STOCKS:
-            result = get_stock_price(stock['name'], stock['code'])
-            if result:
-                lines.append(f"{stock['name']} / {result}")
-                print(f"성공: {stock['name']}")
-            else:
-                lines.append(f"{stock['name']} / 데이터 확인 불가")
-        
-        if lines:
-            full_msg = f"{date_header}\n\n" + "\n".join(lines)
-            send_telegram_message(full_msg)
-            print("전송 완료")
+    print("--- 시작 ---")
+    
+    # 1. 날짜 헤더 생성
+    date_header = get_today_str()
+    
+    # 2. 주식 데이터 수집
+    lines = []
+    for stock in STOCKS:
+        result = get_stock_price(stock['name'], stock['code'])
+        if result:
+            lines.append(f"{stock['name']} / {result}")
+            print(f"성공: {stock['name']}")
+        else:
+            lines.append(f"{stock['name']} / 데이터 수집 실패")
+    
+    # 3. 메시지 조립 및 전송
+    if lines:
+        # 날짜 + 한 줄 띄우기(\n\n) + 종목리스트
+        full_message = f"{date_header}\n\n" + "\n".join(lines)
+        send_telegram_message(full_message)
+        print("전송 완료:\n" + full_message)
     else:
-        print("오늘은 메시지를 보내지 않고 종료합니다.")
+        print("데이터 없음")
