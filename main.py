@@ -49,7 +49,7 @@ def get_stock_price(name, code):
         change_amount = ems[0].select_one(".blind").text
         change_percent = ems[1].select_one(".blind").text
         
-        # 3. 부호 결정 (up/down 클래스 포함 여부)
+        # 3. 부호 결정 (요청하신 이모지로 변경)
         first_em_class = ems[0].get("class", [])
         class_str = " ".join(first_em_class)
 
@@ -57,10 +57,10 @@ def get_stock_price(name, code):
         sign = ""
 
         if "up" in class_str:       # 상승
-            symbol = "▲"
+            symbol = "🔺"
             sign = "+"
         elif "down" in class_str:   # 하락
-            symbol = "▼"
+            symbol = "⬇️"
             sign = "-"
         
         return f"{price}원 / {symbol}{change_amount} / {sign}{change_percent}%"
@@ -82,14 +82,13 @@ def is_market_open(now):
         return False
     
     # 2. 공휴일 체크 (삼성전자 주가 날짜로 확인)
-    # 오늘이 평일이라도 공휴일이면 네이버 금융의 최신 날짜가 오늘과 다름
     try:
         url = "https://finance.naver.com/item/sise_day.naver?code=005930"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 가장 최신 영업일 날짜 가져오기 (YYYY.MM.DD)
+        # 가장 최신 영업일 날짜 가져오기
         latest_date_tag = soup.select_one("span.tah.p10.gray03")
         if latest_date_tag:
             latest_date_str = latest_date_tag.text.strip()
