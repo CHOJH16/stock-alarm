@@ -89,7 +89,6 @@ def is_market_open(now):
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 가장 최신 영업일 날짜 가져오기
         latest_date_tag = soup.select_one("span.tah.p10.gray03")
         if latest_date_tag:
             latest_date_str = latest_date_tag.text.strip()
@@ -105,28 +104,27 @@ def is_market_open(now):
     return True
 
 if __name__ == "__main__":
-    # 한국 시간 기준 설정
     tz = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(tz)
 
-    # 장이 열린 날인지 확인
     if is_market_open(now):
         print("--- 주가 확인 시작 ---")
-        
-        # 날짜 헤더 생성
         date_header = get_today_str(now)
         
         lines = []
         for stock in STOCKS:
             result = get_stock_price(stock['name'], stock['code'])
             if result:
-                lines.append(f"{stock['name']} / {result}")
+                # [수정된 부분] 종목명을 첫 줄에, 데이터를 다음 줄에 배치
+                formatted_msg = f"{stock['name']}\n{result}"
+                lines.append(formatted_msg)
                 print(f"성공: {stock['name']}")
             else:
-                lines.append(f"{stock['name']} / 데이터 확인 불가")
+                lines.append(f"{stock['name']}\n데이터 확인 불가")
         
         if lines:
-            full_msg = f"{date_header}\n\n" + "\n".join(lines)
+            # [수정된 부분] 종목 사이에 빈 줄(\n\n)을 추가하여 연결
+            full_msg = f"{date_header}\n\n" + "\n\n".join(lines)
             send_telegram_message(full_msg)
             print("전송 완료")
     else:
