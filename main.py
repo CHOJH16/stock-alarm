@@ -8,12 +8,13 @@ import pytz
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-# 2. 종목 리스트 (총 4개)
+# 2. 종목 리스트 (총 5개)
 STOCKS = [
     {"name": "TIGER 미국배당다우존스타겟데일리커버드콜", "code": "0008S0"},
     {"name": "TIGER 미국배당다우존스타겟커버드콜2호", "code": "458760"},
     {"name": "RISE 200", "code": "148020"},
-    {"name": "KODEX 200타겟위클리커버드콜", "code": "498400"}
+    {"name": "KODEX 200타겟위클리커버드콜", "code": "498400"},
+    {"name": "삼성전자", "code": "005930"}
 ]
 
 def send_telegram_message(message):
@@ -49,7 +50,7 @@ def get_stock_price(name, code):
         change_amount = ems[0].select_one(".blind").text
         change_percent = ems[1].select_one(".blind").text
         
-        # 3. 부호 결정 (요청하신 이모지로 변경)
+        # 3. 부호 결정 (🔺, ⬇️)
         first_em_class = ems[0].get("class", [])
         class_str = " ".join(first_em_class)
 
