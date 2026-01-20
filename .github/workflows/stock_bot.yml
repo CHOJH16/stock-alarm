@@ -2,14 +2,15 @@ name: Daily Stock Alarm
 
 on:
   schedule:
-    # UTC 06:31 = 한국 시간 15:31
-    # 월(1) ~ 금(5) 실행
-    - cron: '31 6 * * 1-5'
-  workflow_dispatch: # 수동 실행 기능 유지
+    # 깃허브 서버 지연을 대비해 1시간 일찍 켭니다.
+    # UTC 05:30 = 한국 시간 14:30 (오후 2시 30분)
+    - cron: '30 5 * * 1-5'
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 120 # 대기 시간이 길어질 수 있으니 타임아웃을 120분으로 늘림
 
     steps:
       - name: Checkout code
