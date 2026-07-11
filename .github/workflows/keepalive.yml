@@ -1,0 +1,22 @@
+name: Keepalive
+
+on:
+  schedule:
+    - cron: '0 0 */20 * *'   # 20일마다 실행
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Empty commit to keep repo active
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "keepalive: keep scheduled workflows active"
+          git push
