@@ -1,14 +1,14 @@
 import os
-import time
 import datetime
 import requests
 import pytz
 
-# 1. 텔레그램 설정값
 BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
 CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
-# 2. 종목 리스트 (총 5개)
+# 손으로 직접 실행(Run workflow)한 경우엔 요일/휴장 검사를 건너뛰고 무조건 발송
+FORCE = os.environ.get('EVENT_NAME') == 'workflow_dispatch'
+
 STOCKS = [
     {"name": "TIGER 미국배당다우존스타겟데일리커버드콜", "code": "0008S0"},
     {"name": "TIGER 미국배당다우존스타겟커버드콜2호", "code": "458760"},
@@ -27,19 +27,23 @@ HEADERS = {
 KST = pytz.timezone('Asia/Seoul')
 
 
+def log(msg):
+    print(msg, flush=True)
+
+
 def send_telegram_message(message):
     if not BOT_TOKEN or not CHAT_ID:
-        print("토큰 설정 오류")
+        log("토큰 설정 오류: Secrets를 확인하세요.")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, data={"chat_id": CHAT_ID, "text": message}, timeout=15)
+        r = requests.post(url, data={"chat_id": CHAT_ID, "text": message}, timeout=15)
+        log(f"텔레그램 응답 코드: {r.status_code}")
     except Exception as e:
-        print(f"전송 실패: {e}")
+        log(f"전송 실패: {e}")
 
 
 def fetch_all(stocks):
-    """네이버 시세 JSON을 한 번에 가져온다. 실패하면 종목별로 재시도."""
     codes = ",".join(s['code'] for s in stocks)
     url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{codes}"
     result = {}
@@ -49,9 +53,8 @@ def fetch_all(stocks):
         for d in res.json().get('datas', []):
             result[d.get('itemCode')] = d
     except Exception as e:
-        print(f"일괄 조회 실패: {e}")
+        log(f"일괄 조회 실패: {e}")
 
-    # 빠진 종목은 예비 주소로 한 번 더 시도
     for s in stocks:
         if s['code'] in result:
             continue
@@ -60,78 +63,61 @@ def fetch_all(stocks):
             r = requests.get(burl, headers=HEADERS, timeout=15)
             r.raise_for_status()
             result[s['code']] = r.json()
-            print(f"예비 조회 성공: {s['name']}")
+            log(f"예비 조회 성공: {s['name']}")
         except Exception as e:
-            print(f"[{s['name']}] 조회 실패: {e}")
+            log(f"[{s['name']}] 조회 실패: {e}")
     return result
 
 
 def format_line(d):
-    try:
-        price = d.get('closePrice')
-        if not price:
-            return None
-        diff = str(d.get('compareToPreviousClosePrice', '0')).lstrip('+-')
-        ratio = str(d.get('fluctuationsRatio', '0')).lstrip('+-')
-        code = str(d.get('compareToPreviousPrice', {}).get('code', '3'))
-
-        if code in ('1', '2'):      # 상한, 상승
-            symbol, sign = "🔺", "+"
-        elif code in ('4', '5'):    # 하한, 하락
-            symbol, sign = "⬇️", "-"
-        else:                        # 보합
-            symbol, sign = "-", ""
-
-        return f"{price}원 / {symbol}{diff} / {sign}{ratio}%"
-    except Exception as e:
-        print(f"형식 변환 오류: {e}")
+    price = d.get('closePrice')
+    if not price:
         return None
+    diff = str(d.get('compareToPreviousClosePrice', '0')).lstrip('+-')
+    ratio = str(d.get('fluctuationsRatio', '0')).lstrip('+-')
+    code = str(d.get('compareToPreviousPrice', {}).get('code', '3'))
+
+    if code in ('1', '2'):
+        symbol, sign = "🔺", "+"
+    elif code in ('4', '5'):
+        symbol, sign = "⬇️", "-"
+    else:
+        symbol, sign = "-", ""
+    return f"{price}원 / {symbol}{diff} / {sign}{ratio}%"
 
 
-def traded_today(data_map, now):
-    """오늘 실제로 거래가 있었는지(=휴장일이 아닌지) 확인"""
-    today = now.strftime('%Y-%m-%d')
-    for d in data_map.values():
-        if str(d.get('localTradedAt', ''))[:10] == today:
-            return True
-    return False
+def get_trade_date(data_map):
+    """실제 시세가 체결된 날짜(장이 열린 마지막 날)를 찾는다."""
+    dates = [str(d.get('localTradedAt', ''))[:10] for d in data_map.values()]
+    dates = [x for x in dates if len(x) == 10]
+    if not dates:
+        return None
+    return datetime.datetime.strptime(max(dates), "%Y-%m-%d").date()
 
 
-def get_today_str(now):
+def date_header(d):
     weekdays = ["월", "화", "수", "목", "금", "토", "일"]
-    return f"{now.year}년 {now.month}월 {now.day}일({weekdays[now.weekday()]})"
-
-
-def wait_a_bit_if_early():
-    """혹시 15시 35분보다 일찍 실행되면 최대 40분까지만 짧게 대기"""
-    limit = time.time() + 40 * 60
-    while time.time() < limit:
-        now = datetime.datetime.now(KST)
-        target = now.replace(hour=15, minute=35, second=0, microsecond=0)
-        if now >= target:
-            return
-        print(f"{now.strftime('%H:%M:%S')} - 15:35까지 대기 중")
-        time.sleep(60)
+    return f"{d.year}년 {d.month}월 {d.day}일({weekdays[d.weekday()]})"
 
 
 if __name__ == "__main__":
     now = datetime.datetime.now(KST)
+    log(f"현재 한국시간: {now.strftime('%Y-%m-%d %H:%M:%S')} / 수동실행={FORCE}")
 
-    if now.weekday() >= 5:
-        print("오늘은 주말입니다. 발송하지 않습니다.")
+    if now.weekday() >= 5 and not FORCE:
+        log("오늘은 주말입니다. 발송하지 않습니다.")
         raise SystemExit
 
-    wait_a_bit_if_early()
-
-    now = datetime.datetime.now(KST)
     data_map = fetch_all(STOCKS)
-
     if not data_map:
-        print("시세 조회 자체가 실패했습니다.")
+        log("시세 조회에 모두 실패했습니다.")
         raise SystemExit
 
-    if not traded_today(data_map, now):
-        print("오늘은 휴장일로 보입니다. 발송하지 않습니다.")
+    trade_date = get_trade_date(data_map)
+    log(f"조회된 거래일: {trade_date}")
+
+    if not FORCE and trade_date != now.date():
+        log("오늘은 휴장일로 보입니다. 발송하지 않습니다.")
         raise SystemExit
 
     lines = []
@@ -140,10 +126,10 @@ if __name__ == "__main__":
         text = format_line(d) if d else None
         if text:
             lines.append(f"{stock['name']}\n{text}")
-            print(f"성공: {stock['name']}")
+            log(f"성공: {stock['name']}")
         else:
             lines.append(f"{stock['name']}\n데이터 확인 불가")
 
-    full_msg = f"{get_today_str(now)}\n\n" + "\n\n".join(lines)
-    send_telegram_message(full_msg)
-    print("전송 완료")
+    header = date_header(trade_date or now.date())
+    send_telegram_message(f"{header}\n\n" + "\n\n".join(lines))
+    log("작업 종료")
